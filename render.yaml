@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: jpg-to-pdf-frontend
+    env: node
+    buildCommand: npm install
+    startCommand: node index.js
+    envVars:
+      - key: FLASK_BACKEND_URL
+        fromService:
+          type: web
+          name: jpg-to-pdf-backend
+          envVarKey: RENDER_EXTERNAL_URL
+    autoDeploy: true
+
+  - type: web
+    name: jpg-to-pdf-backend
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python backend/app.py
+    autoDeploy: true 

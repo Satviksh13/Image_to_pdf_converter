@@ -1,9 +1,9 @@
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
-const axios = require('axios');
 const fs = require('fs');
-const FormData = require('form-data');
+const PDFDocument = require('pdfkit');
+const sharp = require('sharp');
 const app = express();
 
 // Set up EJS as the view engine
@@ -54,40 +54,61 @@ app.post('/convert', upload.array('images'), async (req, res) => {
             return res.status(400).send('No images uploaded');
         }
 
-        // Create a form data object for sending to Flask
-        const formData = new FormData();
+        // Create a PDF document
+        const doc = new PDFDocument({
+            autoFirstPage: false,
+            margin: 0
+        });
+
+        // Set the response headers
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', 'attachment; filename=converted.pdf');
+
+        // Pipe the PDF to the response
+        doc.pipe(res);
+
+        // Process each uploaded image
         for (const file of req.files) {
-            formData.append('images', fs.createReadStream(file.path), {
-                filename: file.originalname,
-                contentType: file.mimetype
-            });
+            try {
+                // Read image with sharp
+                const image = await sharp(file.path)
+                    .toBuffer({ resolveWithObject: true });
+                
+                const { data, info } = image;
+                
+                // Add a new page with the image dimensions
+                doc.addPage({
+                    size: [info.width, info.height],
+                    margin: 0
+                });
+                
+                // Add the image to the PDF
+                doc.image(data, 0, 0, {
+                    width: info.width,
+                    height: info.height
+                });
+                
+            } catch (err) {
+                console.error(`Error processing image ${file.filename}:`, err);
+            }
         }
 
-        // Send the files to Flask backend
-        const response = await axios.post('http://localhost:5000/convert', formData, {
-            headers: {
-                ...formData.getHeaders(),
-            },
-            responseType: 'arraybuffer'
-        });
+        // Finalize the PDF
+        doc.end();
 
         // Clean up uploaded files
         for (const file of req.files) {
             fs.unlinkSync(file.path);
         }
-
-        // Send the PDF back to the client
-        res.set('Content-Type', 'application/pdf');
-        res.set('Content-Disposition', 'attachment; filename=converted.pdf');
-        res.send(Buffer.from(response.data));
     } catch (error) {
         console.error('Error details:', error.message);
-        if (error.response) {
-            console.error('Response status:', error.response.status);
-            console.error('Response data:', error.response.data);
-        }
         res.status(500).send('Error converting images to PDF');
     }
+});
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+    res.status(200).send('OK');
 });
 
 const PORT = process.env.PORT || 3000;
